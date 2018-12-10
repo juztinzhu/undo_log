@@ -21,20 +21,25 @@ type Transcation struct {
 }
 
 type cmdType = byte
+
 const (
-		start cmdType = iota
-		write
-		commit
-		abort
+	start cmdType = iota
+	write
+	commit
+	abort
 )
 
-type UndoLog struct {
-	Cmd cmdType
+type undoLog struct {
+	Cmd           cmdType
 	TranscationID int
-	UserID int
-	Value int
-	OldValue int
+	FromUserID    int
+	FromValue     int
+	OldFromValue  int
+	ToUserID      int
+	ToValue       int
+	OldToValue    int
 }
+
 // System keeps the user and transcation information
 type System struct {
 	sync.RWMutex
@@ -44,7 +49,7 @@ type System struct {
 	Transcations []*Transcation
 
 	// TODO: add some variables about undo log
-	UndoLogs []*UndoLog
+	UndoLogs []*undoLog
 }
 
 // NewSystem returns a System
@@ -52,7 +57,7 @@ func NewSystem() *System {
 	return &System{
 		Users:        make(map[int]*User),
 		Transcations: make([]*Transcation, 0, 10),
-		UndoLogs:     make([]*UndoLog, 0, 10),
+		UndoLogs:     make([]*undoLog, 0, 10),
 	}
 }
 
@@ -77,22 +82,21 @@ func (s *System) DoTransaction(t *Transcation) error {
 	s.Lock()
 	defer s.Unlock()
 
-	append(s.UndoLogs, UndoLog{start,0,0,0})
+	_ = append(s.UndoLogs, &undoLog{start, 0, 0, 0, 0})
 	var cashFrom, cashTo int
-	if userFrom, ok := s.user[t.fromID]; ok {
-		cashFrom = user.Cash
-	}
-	if userTo, ok := s.user[t.toID]; ok {
-		cashTo = user.Cash
-	}
-	
-	append(undoLogs, &make(undolog{write, 
-		t.TranscationID,
-		cashFrom - t.cash,
-		cashFrom,
-	}))
+	//var userFrom,userTo *User
+	if userFrom, ok := s.Users[t.FromID]; ok {
+		cashFrom = userFrom.Cash
 
-	
+		userFrom.Cash = cashFrom - t.Cash
+
+	}
+	if userTo, ok := s.Users[t.ToID]; ok {
+		cashTo = userTo.Cash
+
+		//TODO: write file
+		userTo.Cash = cashTo + t.Cash
+	}
 
 	return nil
 }
@@ -100,7 +104,19 @@ func (s *System) DoTransaction(t *Transcation) error {
 // writeUndoLog writes undo log to file
 func (s *System) writeUndoLog(t *Transcation) error {
 	// TODO: implement writeUndoLog
+	_ = append(s.UndoLogs, &undoLog{write,
+		t.TranscationID,
+		t.FromID,
+		cashFrom - t.Cash,
+		cashFrom,
+	})
 
+	_ = append(s.UndoLogs, &undoLog{write,
+		t.TranscationID,
+		t.ToID,
+		cashTo + t.Cash,
+		cashTo,
+	})
 	return nil
 }
 
