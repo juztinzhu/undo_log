@@ -138,7 +138,7 @@ func (s *System) undo() (int, error) {
 	log := s.undoLogs[len(s.undoLogs)-1]
 	s.Users[log.ToID].Cash -= log.Cash
 	s.Users[log.FromID].Cash += log.Cash
-	if len(s.undoLogs) > 2 {
+	if len(s.undoLogs) > 1 {
 		s.undoLogs = s.undoLogs[:len(s.undoLogs)-1]
 	} else {
 		s.undoLogs = make([]*undoLog, 0)
@@ -163,6 +163,7 @@ func (s *System) UndoTranscation(fromID int) error {
 	for true {
 		tid, err = s.undo()
 		if err != nil || tid == fromID {
+			//TODO: what if fromID does not exist
 			break
 		}
 	}
