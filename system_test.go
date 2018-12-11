@@ -38,6 +38,10 @@ func TestDoTransaction(t *testing.T) {
 
 }
 
+func TestConcurrent(t *testing.T) {
+
+}
+
 func TestUndoTransaction(t *testing.T) {
 	s := NewSystem()
 
@@ -69,6 +73,9 @@ func TestUndoTransaction(t *testing.T) {
 	s.UndoTranscation(1)
 	if users[3].Cash != 9 {
 		t.Error("undo twice failed")
+	}
+	if users[2].Cash != 5 {
+		t.Error("after undo, u2 not revert")
 	}
 
 }
