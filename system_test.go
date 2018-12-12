@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -39,6 +40,79 @@ func TestDoTransaction(t *testing.T) {
 }
 
 func TestConcurrent(t *testing.T) {
+	s := NewSystem()
+
+	const COUNT = 1000000
+	var users = [COUNT]*User{nil}
+	for idx, user := range users {
+		username := fmt.Sprintf("user_%d", idx)
+		user = &User{idx, username, 10}
+		s.AddUser(user)
+	}
+
+	ch := make(chan int)
+	defer close(ch)
+
+	tryTrans := func(ch chan int, id *int, from int, to int, cash int) {
+		for true {
+			if err := s.DoTransaction(&Transcation{*id, from, to, cash}); err != nil {
+				fmt.Printf("Transaction failed from %d to %d with %d", from, to, cash)
+				*id++
+				ch <- 1
+			} else {
+				break
+			}
+		}
+	}
+
+	go func(ch chan int) {
+		id := 0
+		for i := 0; i < COUNT/2; i++ {
+			tryTrans(ch, &id, i, i+COUNT/2, 5)
+			id++
+		}
+		fmt.Printf("maxid %d\n", id)
+		ch <- 0
+	}(ch)
+
+	go func(ch chan int) {
+		id := COUNT * 8
+		for i := COUNT - 1; i >= COUNT/2; i-- {
+			tryTrans(ch, &id, i, i-COUNT/2, 5)
+			id++
+		}
+		fmt.Printf("maxid %d\n", id)
+		ch <- 0
+	}(ch)
+
+	completeCount := 0
+	for true {
+		var x int
+		x = <-ch
+		switch x {
+		case 0:
+			completeCount++
+			if completeCount == 2 {
+				return
+			}
+		case 1:
+			continue
+		}
+	}
+
+	for _, user := range users {
+		if user.Cash != 10 {
+			t.Errorf("%s cash is %d, not 10", user.Name, user.Cash)
+		}
+	}
+
+	s.UndoTranscation(0)
+
+	for _, user := range users {
+		if user.Cash != 10 {
+			t.Errorf("%s cash is %d, not 10", user.Name, user.Cash)
+		}
+	}
 
 }
 
