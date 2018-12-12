@@ -56,7 +56,7 @@ func TestConcurrent(t *testing.T) {
 	tryTrans := func(ch chan int, id *int, from int, to int, cash int) {
 		for true {
 			if err := s.DoTransaction(&Transcation{*id, from, to, cash}); err != nil {
-				fmt.Printf("Transaction failed from %d to %d with %d", from, to, cash)
+				fmt.Println(err)
 				*id++
 				ch <- 1
 			} else {
@@ -65,25 +65,30 @@ func TestConcurrent(t *testing.T) {
 		}
 	}
 
-	go func(ch chan int) {
-		id := 0
+	transA := func(ch chan int, startId int) {
+		id := startId
 		for i := 0; i < COUNT/2; i++ {
-			tryTrans(ch, &id, i, i+COUNT/2, 5)
+			tryTrans(ch, &id, i, i+COUNT/2, 6)
 			id++
 		}
 		fmt.Printf("maxid %d\n", id)
 		ch <- 0
-	}(ch)
+	}
 
-	go func(ch chan int) {
-		id := COUNT * 8
-		for i := COUNT - 1; i >= COUNT/2; i-- {
+	transB := func(ch chan int, startId int) {
+		id := startId
+		for i := COUNT / 2; i < COUNT; i++ {
 			tryTrans(ch, &id, i, i-COUNT/2, 5)
 			id++
 		}
 		fmt.Printf("maxid %d\n", id)
 		ch <- 0
-	}(ch)
+	}
+
+	go transA(ch, 0)
+	go transA(ch, COUNT*2)
+	go transB(ch, COUNT*4)
+	go transB(ch, COUNT*6)
 
 	completeCount := 0
 	for true {
@@ -92,7 +97,7 @@ func TestConcurrent(t *testing.T) {
 		switch x {
 		case 0:
 			completeCount++
-			if completeCount == 2 {
+			if completeCount == 4 {
 				return
 			}
 		case 1:
@@ -100,10 +105,17 @@ func TestConcurrent(t *testing.T) {
 		}
 	}
 
-	for _, user := range users {
-		if user.Cash != 10 {
-			t.Errorf("%s cash is %d, not 10", user.Name, user.Cash)
+	for idx, user := range users {
+		if idx < COUNT/2 {
+			if user.Cash != 3 {
+				t.Errorf("%s cash is %d, not 3", user.Name, user.Cash)
+			}
+		} else {
+			if user.Cash != 17 {
+				t.Errorf("%s cash is %d, not 17", user.Name, user.Cash)
+			}
 		}
+
 	}
 
 	s.UndoTranscation(0)
