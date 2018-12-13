@@ -20,7 +20,7 @@ type UndoLog struct {
 //Open open file
 func (l *UndoLog) Open() error {
 	var err error
-	l.file, err = os.OpenFile("./undo.log", os.O_RDWR|os.O_CREATE, 0640) //TODO: consider excl
+	l.file, err = os.OpenFile("./undo.bin", os.O_RDWR|os.O_CREATE, 0640) //TODO: consider excl
 	if err != nil {
 		return err
 	}
