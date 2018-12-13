@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"sync"
 )
 
@@ -21,27 +24,6 @@ type Transcation struct {
 	Cash          int
 }
 
-type cmdType = byte
-
-const (
-	start cmdType = iota
-	write
-	commit
-	abort
-)
-
-type undoLog struct {
-	Cmd           cmdType
-	TranscationID int
-	FromID        int
-	FromValue     int
-	OldFromValue  int
-	ToID          int
-	ToValue       int
-	OldToValue    int
-	Cash          int
-}
-
 // System keeps the user and transcation information
 type System struct {
 	sync.RWMutex
@@ -51,7 +33,9 @@ type System struct {
 	Transcations []*Transcation
 
 	// TODO: add some variables about undo log
-	undoLogs []*undoLog
+	undoLogs []*UndoItem
+
+	logch chan []byte
 }
 
 // NewSystem returns a System
@@ -59,7 +43,7 @@ func NewSystem() *System {
 	return &System{
 		Users:        make(map[int]*User),
 		Transcations: make([]*Transcation, 0, 10),
-		undoLogs:     make([]*undoLog, 0, 10),
+		undoLogs:     make([]*UndoItem, 0, 10),
 	}
 }
 
@@ -109,17 +93,36 @@ func (s *System) DoTransaction(t *Transcation) error {
 	return nil
 }
 
+func appendLog() error {
+	f, err := os.OpenFile("./undo.log", os.O_RDWR|os.O_CREATE, 0640) //TODO: consider excl
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	if _, err = f.Seek(0, io.SeekEnd); err != nil {
+
+		return err
+	}
+
+	w := bufio.NewWriter(f)
+	if _, err = w.Write([]byte{0x33, 0x34}); err != nil {
+		return err
+	}
+
+	if err = w.Flush(); err != nil {
+		return err
+	}
+	return nil
+}
+
 // writeUndoLog writes undo log to file
 func (s *System) writeUndoLog(t *Transcation) error {
 	// TODO: implement writeUndoLog
-	s.undoLogs = append(s.undoLogs, &undoLog{write,
+	s.undoLogs = append(s.undoLogs, &UndoItem{write,
 		t.TranscationID,
 		t.FromID,
-		t.Cash,
-		t.Cash,
 		t.ToID,
-		t.Cash,
-		t.Cash,
 		t.Cash,
 	})
 
@@ -141,7 +144,7 @@ func (s *System) undo() (int, error) {
 	if len(s.undoLogs) > 1 {
 		s.undoLogs = s.undoLogs[:len(s.undoLogs)-1]
 	} else {
-		s.undoLogs = make([]*undoLog, 0)
+		s.undoLogs = make([]*UndoItem, 0)
 	}
 	return log.TranscationID, nil
 }
