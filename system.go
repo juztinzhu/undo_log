@@ -1,11 +1,8 @@
 package main
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
-	"io"
-	"os"
 	"sync"
 )
 
@@ -27,15 +24,9 @@ type Transcation struct {
 // System keeps the user and transcation information
 type System struct {
 	sync.RWMutex
-
-	Users map[int]*User
-
+	Users        map[int]*User
 	Transcations []*Transcation
-
-	// TODO: add some variables about undo log
-	undoLogs []*UndoItem
-
-	logch chan []byte
+	undoLog      *UndoLog
 }
 
 // NewSystem returns a System
@@ -43,7 +34,7 @@ func NewSystem() *System {
 	return &System{
 		Users:        make(map[int]*User),
 		Transcations: make([]*Transcation, 0, 10),
-		undoLogs:     make([]*UndoItem, 0, 10),
+		undoLog:      NewUndoLog("./undo.bin"),
 	}
 }
 
@@ -93,40 +84,14 @@ func (s *System) DoTransaction(t *Transcation) error {
 	return nil
 }
 
-func appendLog() error {
-	f, err := os.OpenFile("./undo.log", os.O_RDWR|os.O_CREATE, 0640) //TODO: consider excl
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	if _, err = f.Seek(0, io.SeekEnd); err != nil {
-
-		return err
-	}
-
-	w := bufio.NewWriter(f)
-	if _, err = w.Write([]byte{0x33, 0x34}); err != nil {
-		return err
-	}
-
-	if err = w.Flush(); err != nil {
-		return err
-	}
-	return nil
-}
-
 // writeUndoLog writes undo log to file
 func (s *System) writeUndoLog(t *Transcation) error {
-	// TODO: implement writeUndoLog
-	s.undoLogs = append(s.undoLogs, &UndoItem{write,
+	return s.undoLog.Write(&UndoItem{write,
 		t.TranscationID,
 		t.FromID,
 		t.ToID,
 		t.Cash,
 	})
-
-	return nil
 }
 
 // gcUndoLog the old undo log
@@ -135,18 +100,17 @@ func (s *System) gcUndoLog() {
 }
 
 func (s *System) undo() (int, error) {
-	if len(s.undoLogs) == 0 {
-		return 0, fmt.Errorf("undoLogs empty already")
+	log, err := s.undoLog.Read()
+	if err != nil {
+		return 0, err
 	}
-	log := s.undoLogs[len(s.undoLogs)-1]
 	s.Users[log.ToID].Cash -= log.Cash
 	s.Users[log.FromID].Cash += log.Cash
-	if len(s.undoLogs) > 1 {
-		s.undoLogs = s.undoLogs[:len(s.undoLogs)-1]
-	} else {
-		s.undoLogs = make([]*UndoItem, 0)
+	if err = s.undoLog.Pop(); err != nil {
+		return 0, err
 	}
 	return log.TranscationID, nil
+
 }
 
 // UndoTranscation roll back some transcations
@@ -156,20 +120,21 @@ func (s *System) UndoTranscation(fromID int) error {
 
 	s.Lock()
 	defer s.Unlock()
-	if len(s.undoLogs) == 0 {
-		return fmt.Errorf("udoLogs is empty")
-	}
-
-	var err error
-	var tid int
 
 	for true {
-		tid, err = s.undo()
-		if err != nil || tid == fromID {
+		tid, err := s.undo()
+		if err != nil {
+			return err
+		}
+		if tid == fromID {
 			//TODO: what if fromID does not exist
 			break
 		}
 	}
+	return nil
+}
 
-	return err
+// Close cleanup
+func (s *System) Close() {
+	s.undoLog.Close()
 }

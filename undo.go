@@ -7,25 +7,34 @@ import (
 	"os"
 )
 
-//UndoLog manage file read\write
+// UndoLog manage file read\write
+// TODO: log file rotate, maybe add an index file
 type UndoLog struct {
-	fileName   string
-	file       *os.File
-	offset     int64
-	lastOffset int64 //only for read
-	w          *bufio.Writer
-	r          *bufio.Reader
+	fileName    string
+	file        *os.File
+	writeOffset int64
+	readOffset  int64 //only for read
+	prevOffset  int64 //offset of previous item to be read.
+	w           *bufio.Writer
+	r           *bufio.Reader
 }
 
-//Open open file
+// NewUndoLog create log with filename
+func NewUndoLog(name string) *UndoLog {
+	u := &UndoLog{fileName: name}
+	u.Open()
+	return u
+}
+
+// Open open file
 func (l *UndoLog) Open() error {
 	var err error
-	l.file, err = os.OpenFile("./undo.bin", os.O_RDWR|os.O_CREATE, 0640) //TODO: consider excl
+	l.file, err = os.OpenFile(l.fileName, os.O_RDWR|os.O_CREATE, 0640) //TODO: consider excl
 	if err != nil {
 		return err
 	}
 
-	if l.offset, err = l.file.Seek(0, io.SeekEnd); err != nil {
+	if l.writeOffset, err = l.file.Seek(0, io.SeekEnd); err != nil {
 		return err
 	}
 
@@ -42,25 +51,44 @@ func (l *UndoLog) Close() { //TODO: in destructor?
 
 // Write write&flush an item to file
 func (l *UndoLog) Write(item *UndoItem) error {
-	defer l.w.Reset(l.w)
-	var err error
-	currentOffset := l.offset
-	l.offset, err = item.ToBinary(l.w, l.offset)
+	//defer l.w.Reset(l.w)
+	l.seekForWrite()
+	length, err := item.ToBinary(l.w, l.writeOffset)
+	l.readOffset = l.writeOffset
+	l.writeOffset += length
 	if err != nil {
 		return err
 	}
-	l.lastOffset = currentOffset
-	return l.w.Flush()
+	err = l.w.Flush()
+	return err
 }
 
-//func (l *UndoLog) seekForRead()
+func (l *UndoLog) seekForWrite() {
+	l.writeOffset, _ = l.file.Seek(0, io.SeekEnd)
+}
+func (l *UndoLog) seekForRead() bool {
+	if l.readOffset == -1 {
+		return false
+	}
+	if _, err := l.file.Seek(l.readOffset, io.SeekStart); err != nil {
+		return false
+	}
+	return true
+}
+func (l *UndoLog) trunc(pos int64) error {
+	return l.file.Truncate(pos)
+}
 
-// Read read file till we get a whole item
+// Read read file till we get a whole item, return nil if nothing to read
 func (l *UndoLog) Read() (*UndoItem, error) {
-	//l.seekForRead()
+	defer l.r.Reset(l.file)
+	if !l.seekForRead() {
+		return nil, nil
+	}
 	item := UndoItem{}
 	var err error
-	l.lastOffset, err = item.FromBinary(l.r)
+	l.prevOffset, err = item.FromBinary(l.r)
+
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +97,11 @@ func (l *UndoLog) Read() (*UndoItem, error) {
 
 // Pop pop the last UndoItem from file
 func (l *UndoLog) Pop() error {
-
+	if err := l.trunc(l.readOffset); err != nil {
+		return err
+	}
+	l.writeOffset = l.readOffset
+	l.readOffset = l.prevOffset
 	return nil
 }
 
@@ -83,9 +115,9 @@ const (
 )
 
 // UndoItem undo log implementation
-// magic:4|version:4|next:4|last:4|trans:4|from:4|to:4|cash:4
-// last: offset of last item. For the first item, it's 0 too.
-// TODO: offset limited to 2G
+// magic:4|version:4|next:4|prev:4|trans:4|from:4|to:4|cash:4
+// prev: writeOffset of last item. For the first item, it's -1
+// TODO: writeOffset limited to 2G
 type UndoItem struct {
 	Cmd           cmdType
 	TranscationID int
@@ -98,7 +130,7 @@ type UndoItem struct {
 	Cash int
 }
 
-//ToBinary write binary to writer, so far limited to 2G
+// ToBinary write binary to writer, so far limited to 2G. return length of this item.
 func (t *UndoItem) ToBinary(w io.Writer, lastoffset int64) (int64, error) {
 	var pErr *error
 	var length int
@@ -114,13 +146,13 @@ func (t *UndoItem) ToBinary(w io.Writer, lastoffset int64) (int64, error) {
 		length += 4
 	}
 
-	wint(0x006f6475)
-	wint(0x00000001)
-	wint(int32(lastoffset) + 32) //TODO: how to calc size?
-	if lastoffset != 0 {
+	wint(0x006f6475)             //magic
+	wint(0x00000001)             //version
+	wint(int32(lastoffset) + 32) //next //TODO: how to calc size?
+	if lastoffset != 0 {         //prev For the first item, it's -1
 		wint(int32(lastoffset) - 32)
 	} else {
-		wint(int32(lastoffset))
+		wint(int32(-1))
 	}
 	wint(int32(t.TranscationID))
 	wint(int32(t.FromID))
@@ -132,7 +164,7 @@ func (t *UndoItem) ToBinary(w io.Writer, lastoffset int64) (int64, error) {
 	return int64(length), nil
 }
 
-//FromBinary read binary from reader
+// FromBinary read binary from reader, return writeOffset of the item before the one being read.
 func (t *UndoItem) FromBinary(r io.Reader) (int64, error) {
 	var pErr *error
 	//var length int
@@ -165,9 +197,3 @@ func (t *UndoItem) FromBinary(r io.Reader) (int64, error) {
 	}
 	return int64(last), nil
 }
-
-//MarshalBinary interface BinaryMarshaler,
-//func (l *UndoLog) MarshalBinary() (data []byte, err error) {}
-
-//UnmarshalBinary interface BinaryUnmarshaler
-//func (l *UndoLog) UnmarshalBinary(data []byte) error {}

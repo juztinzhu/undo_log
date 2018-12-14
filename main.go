@@ -6,6 +6,7 @@ import (
 
 func main() {
 	system := NewSystem()
+	defer system.Close()
 
 	users := []*User{
 		{

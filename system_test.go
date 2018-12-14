@@ -39,7 +39,7 @@ func TestDoTransaction(t *testing.T) {
 
 }
 
-func TestConcurrent(t *testing.T) {
+func BenchmarkConcurrent(t *testing.B) {
 	s := NewSystem()
 
 	const COUNT = 1000000
