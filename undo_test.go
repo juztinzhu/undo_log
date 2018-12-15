@@ -1,8 +1,12 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestLogWrite(t *testing.T) {
+	os.Remove("./test.bin")
 	log := NewUndoLog("./test.bin")
 	if err := log.Open(); err != nil {
 		t.Error(err)
@@ -14,13 +18,13 @@ func TestLogWrite(t *testing.T) {
 }
 
 func TestLogRead(t *testing.T) {
-
+	os.Remove("./test.bin")
 	log := NewUndoLog("./test.bin")
 	if err := log.Open(); err != nil {
 		t.Error(err)
 	}
 	defer log.Close()
-	origin := UndoItem{start, 0x99, 1, 3, 10}
+	origin := UndoItem{write, 0x99, 1, 100, 3, 0, 10}
 	if err := log.Write(&origin); err != nil {
 		t.Error(err)
 	}
@@ -43,6 +47,7 @@ func TestLogRead(t *testing.T) {
 }
 
 func TestLogWriteRead(t *testing.T) {
+	os.Remove("./test.bin")
 	log := NewUndoLog("./test.bin")
 	if err := log.Open(); err != nil {
 		t.Error(err)
@@ -50,10 +55,10 @@ func TestLogWriteRead(t *testing.T) {
 
 	defer log.Close()
 	origins := []UndoItem{
-		UndoItem{start, 0x1, 1, 2, 10},
-		UndoItem{start, 0x2, 2, 3, 20},
-		UndoItem{start, 0x3, 3, 4, 30},
-		UndoItem{start, 0x4, 5, 6, 40},
+		UndoItem{write, 0x1, 1, 100, 2, 0, 10},
+		UndoItem{write, 0x2, 2, 100, 3, 0, 20},
+		UndoItem{write, 0x3, 3, 100, 4, 0, 30},
+		UndoItem{write, 0x4, 5, 100, 6, 0, 40},
 	}
 
 	for _, item := range origins {

@@ -61,22 +61,24 @@ func (s *System) DoTransaction(t *Transcation) error {
 
 	s.Transcations = append(s.Transcations, t)
 
-	s.writeUndoLog(t)
-
 	var cashFrom, cashTo int
 	var ok bool
 	var userFrom, userTo *User
 	if userFrom, ok = s.Users[t.FromID]; ok {
 		cashFrom = userFrom.Cash
-		userFrom.Cash = cashFrom - t.Cash
-
 	}
 	if userTo, ok = s.Users[t.ToID]; ok {
 		cashTo = userTo.Cash
-		userTo.Cash = cashTo + t.Cash
 	}
 
-	if userFrom.Cash < 0 {
+	s.writeUndoLog(t, cashFrom, cashTo)
+
+	userFrom.Cash = cashFrom - t.Cash
+	userTo.Cash = cashTo + t.Cash
+
+	s.commitUndoLog(t)
+
+	if userFrom.Cash < 0 { //could check at the begnning of transaction, unless it's MVCC
 		s.undo()
 		return fmt.Errorf("Insufficient fund, %s with %d transfering %d", userFrom.Name, userFrom.Cash, t.Cash)
 	}
@@ -85,13 +87,20 @@ func (s *System) DoTransaction(t *Transcation) error {
 }
 
 // writeUndoLog writes undo log to file
-func (s *System) writeUndoLog(t *Transcation) error {
+func (s *System) writeUndoLog(t *Transcation, fromCash int, toCash int) error {
 	return s.undoLog.Write(&UndoItem{write,
 		t.TranscationID,
 		t.FromID,
+		fromCash,
 		t.ToID,
+		toCash,
 		t.Cash,
 	})
+}
+
+// commitUndoLog commit the transaction & write to file
+func (s *System) commitUndoLog(t *Transcation) error {
+	return s.undoLog.Write(&UndoItem{Cmd: commit, TranscationID: t.TranscationID})
 }
 
 // gcUndoLog the old undo log
@@ -104,8 +113,17 @@ func (s *System) undo() (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	s.Users[log.ToID].Cash -= log.Cash
-	s.Users[log.FromID].Cash += log.Cash
+	if log.Cmd == commit {
+		if err = s.undoLog.Pop(); err != nil {
+			return 0, err
+		}
+		if log, err = s.undoLog.Read(); err != nil {
+			return 0, err
+		}
+	}
+
+	s.Users[log.ToID].Cash = log.ToCash
+	s.Users[log.FromID].Cash = log.FromCash
 	if err = s.undoLog.Pop(); err != nil {
 		return 0, err
 	}
@@ -134,7 +152,7 @@ func (s *System) UndoTranscation(fromID int) error {
 	return nil
 }
 
-// Close cleanup
+// Close cleanup, close opened files
 func (s *System) Close() {
 	s.undoLog.Close()
 }
