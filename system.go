@@ -88,13 +88,13 @@ func (s *System) DoTransaction(t *Transcation) error {
 
 // writeUndoLog writes undo log to file
 func (s *System) writeUndoLog(t *Transcation, fromCash int, toCash int) error {
-	return s.undoLog.Write(&UndoItem{write,
-		t.TranscationID,
-		t.FromID,
-		fromCash,
-		t.ToID,
-		toCash,
-		t.Cash,
+	return s.undoLog.Write(&UndoItem{Cmd: write,
+		TranscationID: t.TranscationID,
+		FromID:        t.FromID,
+		FromCash:      fromCash,
+		ToID:          t.ToID,
+		ToCash:        toCash,
+		Cash:          t.Cash,
 	})
 }
 

@@ -8,6 +8,9 @@ import (
 	"os"
 )
 
+var errHeaderOffsetNotMatch = errors.New("file header offset does not match file size")
+var errRecoverFail = errors.New("recover file failed")
+
 type fromToBinary interface {
 	ToBinary(w io.Writer, currentOffset int64, prevOffset int64) (int64, error)
 	FromBinary(r io.Reader) (int64, error)
@@ -25,12 +28,15 @@ type UndoLog struct {
 	prevOffset  int64 //offset of previous item to be read.
 	w           *bufio.Writer
 	r           *bufio.Reader
+	header      *fileHeader
 }
 
 // NewUndoLog create log with filename
 func NewUndoLog(name string) *UndoLog {
 	u := &UndoLog{fileName: name}
-	u.Open()
+	if err := u.Open(); err != nil {
+		panic("UndoLog open failed: " + err.Error())
+	}
 	return u
 }
 
@@ -49,32 +55,73 @@ func (l *UndoLog) Open() error {
 	if info, err = l.file.Stat(); err != nil {
 		return err
 	}
+
+	l.w = bufio.NewWriter(l.file)
+	l.r = bufio.NewReader(l.file)
+
 	if info.Size() == 0 {
-		l.w = bufio.NewWriter(l.file)
-		l.r = bufio.NewReader(l.file)
-		return l.Write(newFileHeader())
+		// new file
+		l.header = newFileHeader()
+		return l.Write(l.header)
 	}
 
+	//lagacy file
 	if err = l.checkIntegrity(info.Size()); err != nil {
-		return errors.New("Check integrity failed:" + err.Error())
+		if err != errHeaderOffsetNotMatch {
+			return err
+		}
+		// try find last item
+		if !l.recover(info.Size()) {
+			return errRecoverFail
+		}
 	}
+	// TODO: check if last trans not commited, if so, add to pending undo
 
 	return nil
 }
 
+func (l *UndoLog) recover(size int64) bool {
+	// find item from header's last item offset
+	l.readOffset = l.header.EndingItemOffset
+	endingOffset := l.header.EndingItemOffset
+	item, err := l.Read()
+	l.readOffset = item.NextOffset()
+	for l.readOffset < size && err != nil {
+		if item, err = l.Read(); err != nil {
+			break
+		}
+		endingOffset = l.readOffset
+		l.readOffset = item.NextOffset()
+	}
+	if item.NextOffset() == size {
+		// can be recover.
+		l.header.EndingItemOffset = endingOffset
+		// update header with the right endingoffset
+		l.writeHeader(l.header)
+		return true
+	}
+	return false
+}
+
 func (l *UndoLog) checkIntegrity(size int64) error {
-	header, err := l.readHeader()
+	var err error
+	l.header, err = l.readHeader()
 	if err != nil {
 		return err
 	}
-	l.readOffset = header.EndingItemOffset
-	item, err := l.Read()
+	l.readOffset = l.header.EndingItemOffset
+	if item, err := l.Read(); err != nil {
+		return err
+	} else if size != item.NextOffset() {
+		return errHeaderOffsetNotMatch
+	}
 
 	return nil
 }
 
 // Close close file
 func (l *UndoLog) Close() { //TODO: in destructor?
+	l.writeHeader(l.header)
 	l.file.Close()
 }
 
@@ -84,6 +131,7 @@ func (l *UndoLog) Write(item fromToBinary) error {
 	length, err := item.ToBinary(l.w, l.writeOffset, l.readOffset)
 	l.readOffset = l.writeOffset
 	l.writeOffset += length
+	l.header.EndingItemOffset = l.readOffset // update header's ending offset
 	if err != nil {
 		return err
 	}
@@ -105,6 +153,19 @@ func (l *UndoLog) seekForRead() bool {
 }
 func (l *UndoLog) trunc(pos int64) error {
 	return l.file.Truncate(pos)
+}
+
+func (l *UndoLog) writeHeader(*fileHeader) error {
+	if _, err := l.file.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	if _, err := l.header.ToBinary(l.w, 0, 0); err != nil { // last 2 param will be ignored
+		return err
+	}
+	if err := l.w.Flush(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (l *UndoLog) readHeader() (*fileHeader, error) {
@@ -149,43 +210,14 @@ func (l *UndoLog) Pop() error {
 	return nil
 }
 
-type cmdType = byte
+type cmdType = int
 
 const (
 	//start cmdType = iota
-	write cmdType = iota
-	commit
+	write  cmdType = 1<<24 + constMAGIC // UDO\1 in hex, LittleEndian
+	commit cmdType = 2<<24 + constMAGIC // UDO\2 in hex, LittleEndian
 	//abort
 )
-
-// magic:4|version:4|next:4|endItem:4|
-type fileHeader struct {
-	Magic            int
-	Version          int
-	NextItemOffset   int64
-	EndingItemOffset int64
-}
-
-//Next offset of next item
-func (t *fileHeader) Next() int64 {
-	return t.NextItemOffset
-}
-
-//Prev offset of previous item
-func (t *fileHeader) Prev() int64 {
-	return -1
-}
-
-const constMAGIC int = 0x006f6475
-const constVERSION int = 1
-
-func newFileHeader() *fileHeader {
-	return &fileHeader{Magic: constMAGIC, Version: constVERSION, NextItemOffset: 16}
-}
-
-func checkFileHeader(header *fileHeader) bool {
-	return header.Magic == constMAGIC
-}
 
 // UndoItem undo log implementation
 // cmd:4|next:4|prev:4|trans:4|from:4|fromcash:4|to:4|tocash:4|cash:4
@@ -203,13 +235,13 @@ type UndoItem struct {
 	prev          int
 }
 
-//Next offset of next item
-func (t *UndoItem) Next() int64 {
+// NextOffset offset of next item
+func (t *UndoItem) NextOffset() int64 {
 	return int64(t.next)
 }
 
-//Prev offset of previous item
-func (t *UndoItem) Prev() int64 {
+// PrevOffset offset of previous item
+func (t *UndoItem) PrevOffset() int64 {
 	return int64(t.prev)
 }
 
@@ -269,12 +301,10 @@ func (t *UndoItem) FromBinary(r io.Reader) (int64, error) {
 	}
 
 	var cmd int
-	var next int
-	var prev int
 	rint(&cmd)
 	t.Cmd = cmdType(cmd)
-	rint(&next)
-	rint(&prev)
+	rint(&t.next)
+	rint(&t.prev)
 	rint(&t.TranscationID)
 	if t.Cmd != commit {
 		rint(&t.FromID)
@@ -286,7 +316,36 @@ func (t *UndoItem) FromBinary(r io.Reader) (int64, error) {
 	if pErr != nil {
 		return 0, *pErr
 	}
-	return int64(prev), nil
+	return int64(t.prev), nil
+}
+
+// magic:4|version:4|next:4|endItem:4|
+type fileHeader struct {
+	Magic            int
+	Version          int
+	NextItemOffset   int64
+	EndingItemOffset int64
+}
+
+//Next offset of next item
+func (h *fileHeader) NextOffset() int64 {
+	return h.NextItemOffset
+}
+
+//Prev offset of previous item
+func (h *fileHeader) PrevOffset() int64 {
+	return -1
+}
+
+const constMAGIC int = 0x006f6475 //UDO\0
+const constVERSION int = 1
+
+func newFileHeader() *fileHeader {
+	return &fileHeader{Magic: constMAGIC, Version: constVERSION, NextItemOffset: 16}
+}
+
+func checkFileHeader(header *fileHeader) bool {
+	return header.Magic == constMAGIC
 }
 
 func (h *fileHeader) ToBinary(w io.Writer, currentOffset int64, prevOffset int64) (int64, error) {

@@ -8,9 +8,6 @@ import (
 func TestLogWrite(t *testing.T) {
 	os.Remove("./test.bin")
 	log := NewUndoLog("./test.bin")
-	if err := log.Open(); err != nil {
-		t.Error(err)
-	}
 	defer log.Close()
 	if err := log.Write(&UndoItem{}); err != nil {
 		t.Error(err)
@@ -20,18 +17,17 @@ func TestLogWrite(t *testing.T) {
 func TestLogRead(t *testing.T) {
 	os.Remove("./test.bin")
 	log := NewUndoLog("./test.bin")
-	if err := log.Open(); err != nil {
-		t.Error(err)
-	}
-	defer log.Close()
-	origin := UndoItem{write, 0x99, 1, 100, 3, 0, 10}
+	//defer log.Close()
+	origin := UndoItem{write, 0x99, 1, 100, 3, 0, 10, 0, 0}
 	if err := log.Write(&origin); err != nil {
 		t.Error(err)
 	}
 
 	log.Close()
 
-	log.Open()
+	//log.Open()
+	log = NewUndoLog("./test.bin")
+	defer log.Close()
 	item, err := log.Read()
 	if err != nil {
 		t.Error(err)
@@ -49,16 +45,12 @@ func TestLogRead(t *testing.T) {
 func TestLogWriteRead(t *testing.T) {
 	os.Remove("./test.bin")
 	log := NewUndoLog("./test.bin")
-	if err := log.Open(); err != nil {
-		t.Error(err)
-	}
-
 	defer log.Close()
 	origins := []UndoItem{
-		UndoItem{write, 0x1, 1, 100, 2, 0, 10},
-		UndoItem{write, 0x2, 2, 100, 3, 0, 20},
-		UndoItem{write, 0x3, 3, 100, 4, 0, 30},
-		UndoItem{write, 0x4, 5, 100, 6, 0, 40},
+		UndoItem{write, 0x1, 1, 100, 2, 0, 10, 0, 0},
+		UndoItem{write, 0x2, 2, 100, 3, 0, 20, 0, 0},
+		UndoItem{write, 0x3, 3, 100, 4, 0, 30, 0, 0},
+		UndoItem{write, 0x4, 5, 100, 6, 0, 40, 0, 0},
 	}
 
 	for _, item := range origins {
@@ -74,6 +66,9 @@ func TestLogWriteRead(t *testing.T) {
 			return
 		}
 
+		//take care of internal field, they dont need to be the same
+		item.prev = 0
+		item.next = 0
 		if *item != origins[len(origins)-idx-1] {
 			t.Errorf("item read does not match origin")
 		}
@@ -95,6 +90,8 @@ func TestLogWriteRead(t *testing.T) {
 		return
 	}
 
+	item.next = 0
+	item.prev = 0
 	if *item != origins[3] {
 		t.Errorf("item read does not match origin")
 	}
@@ -107,8 +104,15 @@ func TestLogWriteRead(t *testing.T) {
 
 	if item, err := log.Read(); err != nil {
 		t.Error(err)
-	} else if *item != origins[3] {
-		t.Errorf("item read does not match origin")
+	} else {
+		item.next = 0
+		item.prev = 0
+		if *item != origins[3] {
+			t.Errorf("item read does not match origin")
+		}
 	}
 
+}
+
+func TestLogRecover(t *testing.T) {
 }
