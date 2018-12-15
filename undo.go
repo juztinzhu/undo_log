@@ -120,7 +120,7 @@ func (l *UndoLog) checkIntegrity(size int64) error {
 }
 
 // Close close file
-func (l *UndoLog) Close() { //TODO: in destructor?
+func (l *UndoLog) Close() {
 	l.writeHeader(l.header)
 	l.file.Close()
 }
@@ -152,6 +152,15 @@ func (l *UndoLog) seekForRead() bool {
 }
 func (l *UndoLog) trunc(pos int64) error {
 	return l.file.Truncate(pos)
+}
+
+// Purge discard all undo log in current file
+func (l *UndoLog) Purge() {
+	l.writeOffset = l.header.NextOffset()
+	l.readOffset = -1
+	l.header = newFileHeader()
+	l.file.Truncate(l.writeOffset)
+	l.writeHeader(l.header)
 }
 
 func (l *UndoLog) writeHeader(*fileHeader) error {

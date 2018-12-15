@@ -53,7 +53,6 @@ func (s *System) AddUser(u *User) error {
 
 // DoTransaction applys a transaction
 func (s *System) DoTransaction(t *Transcation) error {
-	// TODO: implement DoTransaction
 	// if after this transcation, user's cash is less than zero,
 	// rollback this transcation according to undo log.
 	s.Lock()
@@ -105,7 +104,7 @@ func (s *System) commitUndoLog(t *Transcation) error {
 
 // gcUndoLog the old undo log
 func (s *System) gcUndoLog() {
-	// TODO: implement gcUndoLog
+	s.undoLog.Purge()
 }
 
 func (s *System) undo() (int, error) {
@@ -133,7 +132,6 @@ func (s *System) undo() (int, error) {
 
 // UndoTranscation roll back some transcations
 func (s *System) UndoTranscation(fromID int) error {
-	// TODO: implement UndoTranscation
 	// undo transcation from fromID to the last transcation
 
 	s.Lock()
@@ -145,7 +143,7 @@ func (s *System) UndoTranscation(fromID int) error {
 			return err
 		}
 		if tid == fromID {
-			//TODO: what if fromID does not exist
+			//TODO: what if fromID does not exist. Load all undo log in memory, with a map
 			break
 		}
 	}
