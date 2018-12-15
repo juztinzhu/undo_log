@@ -33,6 +33,8 @@ func TestLogRead(t *testing.T) {
 		t.Error(err)
 		return
 	}
+	item.next = 0
+	item.prev = 0
 	if *item != origin {
 		t.Errorf("item read does not match origin")
 	}
@@ -114,5 +116,35 @@ func TestLogWriteRead(t *testing.T) {
 
 }
 
-func TestLogRecover(t *testing.T) {
+func TestLogFileHeader(t *testing.T) {
+	os.Remove("./test.bin")
+	log := NewUndoLog("./test.bin")
+	origins := []UndoItem{
+		UndoItem{write, 0x1, 1, 100, 2, 0, 10, 0, 0},
+		UndoItem{write, 0x2, 2, 100, 3, 0, 20, 0, 0},
+		UndoItem{write, 0x3, 3, 100, 4, 0, 30, 0, 0},
+		UndoItem{write, 0x4, 5, 100, 6, 0, 40, 0, 0},
+	}
+
+	for _, item := range origins {
+		if err := log.Write(&item); err != nil {
+			t.Error(err)
+		}
+	}
+
+	log.Close()
+	log = NewUndoLog("./test.bin")
+	if info, _ := log.file.Stat(); log.header.Size != info.Size() {
+		t.Error("endingItemOffset does not match size")
+	}
+
+	another := &UndoItem{write, 0x5, 6, 100, 7, 0, 40, 0, 0}
+	log.Write(another)
+	log.file.Close()
+
+	log = NewUndoLog("./test.bin")
+	if info, _ := log.file.Stat(); log.header.Size != info.Size() {
+		t.Error("endingItemOffset does not match size after recover")
+	}
+	log.Close()
 }

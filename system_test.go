@@ -2,11 +2,14 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"testing"
 )
 
 func TestDoTransaction(t *testing.T) {
+	os.Remove("./undo.bin")
 	s := NewSystem()
+	defer s.Close()
 
 	users := make(map[int]*User)
 
@@ -40,7 +43,9 @@ func TestDoTransaction(t *testing.T) {
 }
 
 func BenchmarkConcurrent(t *testing.B) {
+	os.Remove("./undo.bin")
 	s := NewSystem()
+	defer s.Close()
 
 	const COUNT = 1000000
 	var users = [COUNT]*User{nil}
@@ -129,7 +134,9 @@ func BenchmarkConcurrent(t *testing.B) {
 }
 
 func TestUndoTransaction(t *testing.T) {
+	os.Remove("./undo.bin")
 	s := NewSystem()
+	defer s.Close()
 
 	users := make(map[int]*User)
 

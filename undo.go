@@ -86,7 +86,7 @@ func (l *UndoLog) recover(size int64) bool {
 	endingOffset := l.header.EndingItemOffset
 	item, err := l.Read()
 	l.readOffset = item.NextOffset()
-	for l.readOffset < size && err != nil {
+	for l.readOffset < size && err == nil {
 		if item, err = l.Read(); err != nil {
 			break
 		}
@@ -131,7 +131,6 @@ func (l *UndoLog) Write(item fromToBinary) error {
 	length, err := item.ToBinary(l.w, l.writeOffset, l.readOffset)
 	l.readOffset = l.writeOffset
 	l.writeOffset += length
-	l.header.EndingItemOffset = l.readOffset // update header's ending offset
 	if err != nil {
 		return err
 	}
@@ -159,6 +158,9 @@ func (l *UndoLog) writeHeader(*fileHeader) error {
 	if _, err := l.file.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
+	l.header.EndingItemOffset = l.readOffset // update header's ending offset
+	l.header.Size = l.writeOffset
+
 	if _, err := l.header.ToBinary(l.w, 0, 0); err != nil { // last 2 param will be ignored
 		return err
 	}
@@ -190,6 +192,7 @@ func (l *UndoLog) Read() (*UndoItem, error) {
 	if !l.seekForRead() {
 		return nil, nil
 	}
+	l.r.Reset(l.file)
 	item := UndoItem{}
 	var err error
 	l.prevOffset, err = item.FromBinary(l.r)
@@ -319,12 +322,13 @@ func (t *UndoItem) FromBinary(r io.Reader) (int64, error) {
 	return int64(t.prev), nil
 }
 
-// magic:4|version:4|next:4|endItem:4|
+// magic:4|version:4|next:4|endItem:4|total:4
 type fileHeader struct {
 	Magic            int
 	Version          int
 	NextItemOffset   int64
 	EndingItemOffset int64
+	Size             int64
 }
 
 //Next offset of next item
@@ -363,11 +367,12 @@ func (h *fileHeader) ToBinary(w io.Writer, currentOffset int64, prevOffset int64
 		length += 4
 	}
 
-	itemLength := 16
+	itemLength := 20
 	wint(int32(h.Magic))            //magic
 	wint(int32(h.Version))          //version
 	wint(int32(itemLength))         //next
 	wint(int32(h.EndingItemOffset)) //ending item offset
+	wint(int32(h.Size))             //size of file
 
 	if pErr != nil {
 		return int64(length), *pErr
@@ -393,12 +398,15 @@ func (h *fileHeader) FromBinary(r io.Reader) (int64, error) {
 
 	var next int
 	var ending int
+	var size int
 	rint(&h.Magic)
 	rint(&h.Version)
 	rint(&next)
 	rint(&ending)
+	rint(&size)
 	h.NextItemOffset = int64(next)
 	h.EndingItemOffset = int64(ending)
+	h.Size = int64(size)
 
 	if pErr != nil {
 		return -1, *pErr
