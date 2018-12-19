@@ -40,29 +40,29 @@ If file is not closed properly, header may not be updated, then recovery will be
 
 ### Limitation
 
-File size over 2GB is not supported. Don't do that!
+File size over 2GB is not supported. Don't do that!\
 Caller should ensure that the transaction id is valid before performing undo.
 
 ## Usage
 
-undoLog := NewUndoLog("./undo.bin")
-undoLog.Write(&UndoItem(Cmd:write,
-        TranscationID: transcationID,
-        FromID:        fromID,
-        FromCash:      fromCash,
-        ToID:          toID,
-        ToCash:        toCash,
-        Cash:          cash,
-        ))
-//Update account info here
-...
-undoLog.Write(&UndoItem{Cmd: commit, TranscationID: t.TranscationID})
+    undoLog := NewUndoLog("./undo.bin")
+    undoLog.Write(&UndoItem(Cmd:write,
+    TranscationID: transcationID,
+    FromID:        fromID,
+    FromCash:      fromCash,
+    ToID:          toID,
+    ToCash:        toCash,
+    Cash:          cash,
+    ))
+    //Update account info here
+    ...
+    undoLog.Write(&UndoItem{Cmd: commit, TranscationID: t.TranscationID})
 
-//this maybe in a loop
-item := undoLog.Read()
-//test item.transactionid
-...
-undoLog.Pop()
-//loop end
+    //this maybe in a loop
+    item := undoLog.Read()
+    //test item.transactionid
+    ...
+    undoLog.Pop()
+    //loop end
 
-undoLog.Close()
+    undoLog.Close()
