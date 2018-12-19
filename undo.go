@@ -40,7 +40,7 @@ func NewUndoLog(name string) *UndoLog {
 	return u
 }
 
-// Open open file
+// Open open file, return error if fail to open or analyze legacy log file
 func (l *UndoLog) Open() error {
 	var err error
 	l.file, err = os.OpenFile(l.fileName, os.O_RDWR|os.O_CREATE, 0640) //TODO: consider excl
@@ -65,7 +65,7 @@ func (l *UndoLog) Open() error {
 		return l.Write(l.header)
 	}
 
-	//lagacy file
+	//legacy file
 	if err = l.checkIntegrity(info.Size()); err != nil {
 		if err != errHeaderOffsetNotMatch {
 			return err
@@ -119,7 +119,7 @@ func (l *UndoLog) checkIntegrity(size int64) error {
 	return nil
 }
 
-// Close close file
+// Close update header of file and close
 func (l *UndoLog) Close() {
 	l.writeHeader(l.header)
 	l.file.Close()
@@ -212,7 +212,7 @@ func (l *UndoLog) Read() (*UndoItem, error) {
 	return &item, nil
 }
 
-// Pop pop the prev UndoItem from file
+// Pop pop and remove the prev UndoItem from file
 func (l *UndoLog) Pop() error {
 	if err := l.trunc(l.readOffset); err != nil {
 		return err
@@ -361,6 +361,7 @@ func checkFileHeader(header *fileHeader) bool {
 	return header.Magic == constMAGIC
 }
 
+// ToBinary write binary to writer, so far limited to 2G. return length of this item.
 func (h *fileHeader) ToBinary(w io.Writer, currentOffset int64, prevOffset int64) (int64, error) {
 	var pErr *error
 	var length int
